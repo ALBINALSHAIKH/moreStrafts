@@ -15,6 +15,10 @@ A mod that extends Straftat's multiplayer lobby max capacity from 4 players to *
 
 ---
 
+## Support
+
+If you find this mod helpful, consider [buying me a coffee](https://buymeacoffee.com/nitrogenia) ☕
+
 ## Installation
 
 ### Prerequisites
