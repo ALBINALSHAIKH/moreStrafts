@@ -1,0 +1,9 @@
+{
+    "name": "moreStrafts",
+    "version_number": "0.0.1",
+    "description": "Extends Straftat multiplayer lobby capacity from 4 to 10 players. Supports both Free-for-All and Teams modes with expanded team selection.",
+    "website_url": "https://github.com/ALBINALSHAIKH/moreStrafts",
+    "dependencies": [
+        "BepInEx-BepInExPack-5.4.2100"
+    ]
+}
