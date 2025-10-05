@@ -1,4 +1,4 @@
-# More Strafts Players Mod
+# moreStrafts Mod
 
 A mod that extends Straftat's multiplayer lobby max capacity from 4 players to **10 players**.
 
@@ -95,13 +95,6 @@ This mod is in **early alpha** and has **NOT been extensively tested** with 5+ p
 
 ---
 
-## Bug Reports
+## Feature/Bug Reports 
 
-If you encounter bugs, please report them with the following information:
-
-### Required Information
-1. **Player Count:** How many players were in the lobby when the bug occurred?
-2. **Game Mode:** Teams or Free-for-All?
-3. **Reproduction Steps:** Clear, step-by-step instructions to reproduce the bug
-4. **Console Logs:** Copy relevant error messages from the BepInEx console
-   - Console appears when you launch the game (if not, check `BepInEx/config/BepInEx.cfg` and set `Enabled = true` under `[Logging.Console]`)
+If you encounter a bug or have a feature request, please create a new issue in the ['Issues' tab](https://github.com/ALBINALSHAIKH/moreStrafts/issues)
