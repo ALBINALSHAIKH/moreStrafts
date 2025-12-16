@@ -807,4 +807,113 @@ namespace moreStrafts
             }
         }
     }
+
+
+    // Patch 19: Don't check active observers for ConnectionsToStartGame
+    [HarmonyPatch(typeof(GameManager), "WaitForDraw")]
+    public static class WaitForDrawPatch
+    {
+        static bool Prefix(GameManager __instance)
+        {
+            GameManager gameManager = __instance;
+            yield return (object) null;
+            Debug.Log((object) "Waiting for draw...");
+            gameManager.ConnectionsToStartGame.Clear();
+            foreach (NetworkConnection observer in gameManager.Observers)
+            {
+                // if (observer.IsActive)
+                gameManager.ConnectionsToStartGame.Add(observer);
+            }
+            float elapsedTime;
+            for (elapsedTime = 0.0f; gameManager.GetAliveTeams().Length != 0 && (double) elapsedTime < 1.0; elapsedTime += Time.deltaTime)
+            yield return (object) null;
+            int[] aliveTeams = gameManager.GetAliveTeams();
+            if (aliveTeams.Length > 1)
+            {
+                Debug.Log((object) "A player came back to life?? This should never happen!");
+                gameManager.waitForDrawCoroutine = (Coroutine) null;
+            }
+            else if (SceneMotor.Instance.testMap)
+            {
+                gameManager.ProgressToNextTake();
+                gameManager.waitForDrawCoroutine = (Coroutine) null;
+            }
+            else
+            {
+                Debug.Log((object) $"aliveTeams length: {aliveTeams.Length}");
+                if (aliveTeams.Length == 1)
+                {
+                    int num = aliveTeams[0];
+                    ScoreManager.Instance.AddRoundScore(num);
+                    List<int> playerIdsForTeam = ScoreManager.Instance.GetPlayerIdsForTeam(num);
+                    StringBuilder stringBuilder = new StringBuilder();
+                    for (int index = 0; index < playerIdsForTeam.Count; ++index)
+                    {
+                    int key = playerIdsForTeam[index];
+                    if (ClientInstance.playerInstances.ContainsKey(key))
+                    {
+                        stringBuilder.Append($"<color=#{PauseManager.Instance.selfNameLogColor}>{ClientInstance.playerInstances[key].PlayerNameTag}</color>");
+                        if (index < playerIdsForTeam.Count - 2)
+                        stringBuilder.Append(", ");
+                        else if (index == playerIdsForTeam.Count - 2)
+                        stringBuilder.Append(" and ");
+                    }
+                    }
+                    stringBuilder.Append(" won the take");
+                    PauseManager.Instance.WriteLog(stringBuilder.ToString());
+                }
+                else
+                {
+                    int[] array = gameManager.recentDeaths.Select<Death, int>((Func<Death, int>) (death => death.PlayerId)).ToArray<int>();
+                    List<int> intList = new List<int>();
+                    foreach (int playerId in array)
+                    {
+                    int teamId = ScoreManager.Instance.GetTeamId(playerId);
+                    if (!intList.Contains(teamId))
+                    {
+                        ScoreManager.Instance.AddRoundScore(teamId);
+                        intList.Add(teamId);
+                    }
+                    }
+                    PauseManager.Instance.WriteLog($"A draw happened, players: {string.Join(", ", ((IEnumerable<int>) array).Select<int, string>((Func<int, string>) (id => $"<color=#{PauseManager.Instance.selfNameLogColor}>{ClientInstance.playerInstances[id].PlayerNameTag}</color>")))} have scored a point for their teams.");
+                }
+                int winningTeamId;
+                bool isRoundWon = ScoreManager.Instance.CheckForRoundWin(out winningTeamId);
+                gameManager.UpdateMatchPointsHUD(isRoundWon ? winningTeamId : -1, ScoreManager.Instance.GetRoundScoreDictionary());
+                yield return (object) new WaitForSeconds(1f - elapsedTime);
+                if (isRoundWon)
+                {
+                    gameManager.RoundWon(winningTeamId);
+                    List<int> playerIdsForTeam = ScoreManager.Instance.GetPlayerIdsForTeam(winningTeamId);
+                    StringBuilder stringBuilder = new StringBuilder();
+                    for (int index = 0; index < playerIdsForTeam.Count; ++index)
+                    {
+                    int key = playerIdsForTeam[index];
+                    if (ClientInstance.playerInstances.ContainsKey(key))
+                    {
+                        stringBuilder.Append($"<color=#{PauseManager.Instance.selfNameLogColor}>{ClientInstance.playerInstances[key].PlayerNameTag}</color>");
+                        if (index < playerIdsForTeam.Count - 2)
+                        stringBuilder.Append(", ");
+                        else if (index == playerIdsForTeam.Count - 2)
+                        stringBuilder.Append(" and ");
+                    }
+                    }
+                    stringBuilder.Append(" won the round");
+                    PauseManager.Instance.WriteLog(stringBuilder.ToString());
+                    RoundManager.Instance.CmdEndRound(winningTeamId);
+                    yield return (object) new WaitForSeconds(4f);
+                    SceneMotor.Instance.ChangeNetworkScene();
+                }
+                else
+                {
+                    yield return (object) new WaitForSeconds(2f);
+                    gameManager.ProgressToNextTake();
+                }
+                gameManager.alivePlayers.Clear();
+                foreach (ClientInstance clientInstance in ClientInstance.playerInstances.Values)
+                    gameManager.alivePlayers.Add(clientInstance.PlayerId);
+                gameManager.waitForDrawCoroutine = (Coroutine) null;
+            }
+        }
+    }
 }
