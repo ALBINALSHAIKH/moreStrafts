@@ -813,7 +813,12 @@ namespace moreStrafts
     [HarmonyPatch(typeof(GameManager), "WaitForDraw")]
     public static class WaitForDrawPatch
     {
-        static bool Prefix(GameManager __instance)
+        static bool Prefix(GameManager __instance, ref IEnumerator __result)
+        {
+            __result = PatchedWaitForDraw(__instance);
+            return false;
+        }
+        static IEnumerator PatchedWaitForDraw(GameManager __instance)
         {
             GameManager gameManager = __instance;
             yield return (object) null;
@@ -821,7 +826,6 @@ namespace moreStrafts
             gameManager.ConnectionsToStartGame.Clear();
             foreach (NetworkConnection observer in gameManager.Observers)
             {
-                // if (observer.IsActive)
                 gameManager.ConnectionsToStartGame.Add(observer);
             }
             float elapsedTime;
