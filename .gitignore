@@ -1,17 +1,3 @@
-# Build outputs
 src/bin/
 src/obj/
-
-# Decompiled game code (do not distribute)
-dnSpy*/
-
-# Game libraries (proprietary - users must provide their own)
 src/libs/
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Release artifacts
-*.zip
-release/
