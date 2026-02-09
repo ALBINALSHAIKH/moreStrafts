@@ -13,7 +13,7 @@ using UnityEngine.UI;
 
 namespace moreStrafts
 {
-    [BepInPlugin("com.nitrogenia.morestrafts", "More Strafts Players", "0.0.2")]
+    [BepInPlugin("com.nitrogenia.morestrafts", "More Strafts Players", "0.0.4")]
     public class moreStraftsMod : BaseUnityPlugin
     {
         void Awake()
@@ -21,7 +21,7 @@ namespace moreStrafts
             var harmony = new Harmony("com.nitrogenia.morestrafts");
             harmony.PatchAll(Assembly.GetExecutingAssembly());
 
-            Logger.LogInfo("More Strafts Mod alpha v0.0.2 by Nitrogenia loaded! Max players extended to 10.");
+            Logger.LogInfo("More Strafts Mod alpha v0.0.4 by Nitrogenia loaded! Max players extended to 10.");
         }
     }
 
