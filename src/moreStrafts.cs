@@ -9,10 +9,11 @@ using FishNet;
 using Steamworks;
 using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace moreStrafts
 {
-    [BepInPlugin("com.nitrogenia.morestrafts", "More Strafts Players", "0.0.1")]
+    [BepInPlugin("com.nitrogenia.morestrafts", "More Strafts Players", "0.0.2")]
     public class moreStraftsMod : BaseUnityPlugin
     {
         void Awake()
@@ -20,9 +21,11 @@ namespace moreStrafts
             var harmony = new Harmony("com.nitrogenia.morestrafts");
             harmony.PatchAll(Assembly.GetExecutingAssembly());
 
-            Logger.LogInfo("More Strafts Mod alpha v0.0.1 by Nitrogenia loaded! Max players extended to 10.");
+            Logger.LogInfo("More Strafts Mod alpha v0.0.2 by Nitrogenia loaded! Max players extended to 10.");
         }
     }
+
+    public static class ModState { public static bool QuickLoad; }
 
     // ===== DROPDOWN PATCHES =====
 
@@ -88,7 +91,8 @@ namespace moreStrafts
                 // Restore the user's selection from before we cleared the options
                 __instance.MaxPlayersDropdown.value = savedValue;
                 __instance.MaxPlayersDropdown.RefreshShownValue();
-
+                var lobbyId = new CSteamID(callback.m_ulSteamIDLobby);
+                ModState.QuickLoad = SteamMatchmaking.GetLobbyData(lobbyId, "QuickLoad") == "1";
                 Debug.Log($"[moreStrafts] OnLobbyCreated Prefix: Expanded dropdown to 2-10, preserved value {savedValue}");
             }
         }
@@ -97,7 +101,8 @@ namespace moreStrafts
         {
             // Log final state
             Debug.Log($"[moreStrafts] Lobby created with {__instance.maxPlayers} max players (dropdown value: {__instance.MaxPlayersDropdown.value})");
-
+            var lobbyId = new CSteamID(callback.m_ulSteamIDLobby);
+            SteamMatchmaking.SetLobbyData(lobbyId, "QuickLoad", "0"); // default off
             // Configure transport for the host when creating lobby
             try
             {
@@ -115,6 +120,16 @@ namespace moreStrafts
         }
     }
 
+    [HarmonyPatch(typeof(SteamLobby), "OnGetLobbyData")]
+    public static class OnGetLobbyDataPatch
+    {
+        static void Prefix(SteamLobby __instance, LobbyDataUpdate_t result)
+        {
+            var lobbyId = new CSteamID(result.m_ulSteamIDLobby);
+            ModState.QuickLoad = SteamMatchmaking.GetLobbyData(lobbyId, "QuickLoad") == "1";
+        }
+    }
+
     // Patch 2b: Configure transport when entering an existing lobby (for clients and host)
     [HarmonyPatch(typeof(SteamLobby), "OnLobbyEntered")]
     public static class OnLobbyEnteredPatch
@@ -123,6 +138,10 @@ namespace moreStrafts
         {
             // Get the max players from the lobby data
             int maxPlayers = __instance.maxPlayers;
+
+            var lobbyId = new CSteamID(callback.m_ulSteamIDLobby);
+            string val = SteamMatchmaking.GetLobbyData(lobbyId, "QuickLoad");
+            bool quickLoadEnabled = val == "1";
 
             Debug.Log($"[moreStrafts] Lobby entered - max players: {maxPlayers}");
 
@@ -139,6 +158,38 @@ namespace moreStrafts
             catch (Exception e)
             {
                 Debug.LogError($"[moreStrafts] Failed to configure transport on lobby enter: {e.Message}");
+            }
+            if (__instance.enemyOutlineToggle != null)
+            {
+                RectTransform? original = __instance.enemyOutlineToggle.transform.parent as RectTransform;
+                RectTransform? quickLoadToggle = UnityEngine.Object.Instantiate(original);
+
+                quickLoadToggle?.transform.SetParent(original?.transform.parent);
+                quickLoadToggle.name = "EnableQuickLoad";
+                quickLoadToggle.transform.localScale = Vector3.one;
+                quickLoadToggle.position = original.position;
+                quickLoadToggle.localPosition = new Vector3(quickLoadToggle.localPosition.x, quickLoadToggle.localPosition.y - 60, quickLoadToggle.localPosition.z);
+
+                Toggle toggle = quickLoadToggle.GetComponentInChildren<Toggle>();
+                toggle.isOn = false;
+                toggle.onValueChanged.RemoveAllListeners();
+                toggle.onValueChanged.AddListener((isOn) =>
+                {
+                    Debug.Log($"[moreStrafts] Copy toggled: {isOn}");
+                    if (InstanceFinder.NetworkManager.IsServer)
+                    {
+                        SteamMatchmaking.SetLobbyData(lobbyId, "QuickLoad", isOn ? "1" : "0");
+                        Debug.Log("set lobby data quickload");
+                    }
+
+                });
+
+                toggle.GetComponentInChildren<TextMeshProUGUI>().text = "  Enable Quick Load";
+                ModState.QuickLoad = SteamMatchmaking.GetLobbyData(lobbyId, "QuickLoad") == "1";
+                Debug.Log(__instance.enemyOutlineToggle.transform.parent as RectTransform);
+                Debug.Log(quickLoadToggle);
+                Debug.Log(quickLoadToggle.transform.position + "");
+                Debug.Log("New Toggle Created");
             }
         }
     }
@@ -591,7 +642,20 @@ namespace moreStrafts
     // Patch 14: No InterfaceSetup patch needed - the UI only supports 4 players
     // The NextRoundCall patch prevents crashes by expanding the names/scores arrays
     // Players 5-10 won't be shown on the end-round screen, but the game won't crash
+    [HarmonyPatch(typeof(RoundManager), "InterfaceSetup")]
+    public static class RoundManagerInterfaceSetupPatch
+    {
+        static bool Prefix(RoundManager __instance)
+        {
+            if (ModState.QuickLoad)
+            {
+                SceneMotor.Instance.ShowLoadingScreen();
+                return false;
+            }
+            else return true;
+        }
 
+    }
     // ===== EXPAND TEAM SYSTEM FROM 4 TO 10 TEAMS =====
 
     // Patch 15: Expand team dropdown options from 4 to maxPlayers
@@ -807,4 +871,117 @@ namespace moreStrafts
             }
         }
     }
+
+
+    // Patch 19: Don't check active observers for ConnectionsToStartGame
+    // [HarmonyPatch(typeof(GameManager), "WaitForDraw")]
+    // public static class WaitForDrawPatch
+    // {
+    //     static bool Prefix(GameManager __instance, ref IEnumerator __result)
+    //     {
+    //         __result = PatchedWaitForDraw(__instance);
+    //         return false;
+    //     }
+    //     static IEnumerator PatchedWaitForDraw(GameManager __instance)
+    //     {
+    //         GameManager gameManager = __instance;
+    //         yield return (object)null;
+    //         Debug.Log((object)"Waiting for draw...");
+    //         gameManager.ConnectionsToStartGame.Clear();
+    //         foreach (NetworkConnection observer in gameManager.Observers)
+    //         {
+    //             gameManager.ConnectionsToStartGame.Add(observer);
+    //         }
+    //         float elapsedTime;
+    //         for (elapsedTime = 0.0f; gameManager.GetAliveTeams().Length != 0 && (double)elapsedTime < 1.0; elapsedTime += Time.deltaTime)
+    //             yield return (object)null;
+    //         int[] aliveTeams = gameManager.GetAliveTeams();
+    //         if (aliveTeams.Length > 1)
+    //         {
+    //             Debug.Log((object)"A player came back to life?? This should never happen!");
+    //             gameManager.waitForDrawCoroutine = (Coroutine)null;
+    //         }
+    //         else if (SceneMotor.Instance.testMap)
+    //         {
+    //             gameManager.ProgressToNextTake();
+    //             gameManager.waitForDrawCoroutine = (Coroutine)null;
+    //         }
+    //         else
+    //         {
+    //             Debug.Log((object)$"aliveTeams length: {aliveTeams.Length}");
+    //             if (aliveTeams.Length == 1)
+    //             {
+    //                 int num = aliveTeams[0];
+    //                 ScoreManager.Instance.AddRoundScore(num);
+    //                 List<int> playerIdsForTeam = ScoreManager.Instance.GetPlayerIdsForTeam(num);
+    //                 StringBuilder stringBuilder = new StringBuilder();
+    //                 for (int index = 0; index < playerIdsForTeam.Count; ++index)
+    //                 {
+    //                     int key = playerIdsForTeam[index];
+    //                     if (ClientInstance.playerInstances.ContainsKey(key))
+    //                     {
+    //                         stringBuilder.Append($"<color=#{PauseManager.Instance.selfNameLogColor}>{ClientInstance.playerInstances[key].PlayerNameTag}</color>");
+    //                         if (index < playerIdsForTeam.Count - 2)
+    //                             stringBuilder.Append(", ");
+    //                         else if (index == playerIdsForTeam.Count - 2)
+    //                             stringBuilder.Append(" and ");
+    //                     }
+    //                 }
+    //                 stringBuilder.Append(" won the take");
+    //                 PauseManager.Instance.WriteLog(stringBuilder.ToString());
+    //             }
+    //             else
+    //             {
+    //                 int[] array = gameManager.recentDeaths.Select<Death, int>((Func<Death, int>)(death => death.PlayerId)).ToArray<int>();
+    //                 List<int> intList = new List<int>();
+    //                 foreach (int playerId in array)
+    //                 {
+    //                     int teamId = ScoreManager.Instance.GetTeamId(playerId);
+    //                     if (!intList.Contains(teamId))
+    //                     {
+    //                         ScoreManager.Instance.AddRoundScore(teamId);
+    //                         intList.Add(teamId);
+    //                     }
+    //                 }
+    //                 PauseManager.Instance.WriteLog($"A draw happened, players: {string.Join(", ", ((IEnumerable<int>)array).Select<int, string>((Func<int, string>)(id => $"<color=#{PauseManager.Instance.selfNameLogColor}>{ClientInstance.playerInstances[id].PlayerNameTag}</color>")))} have scored a point for their teams.");
+    //             }
+    //             int winningTeamId;
+    //             bool isRoundWon = ScoreManager.Instance.CheckForRoundWin(out winningTeamId);
+    //             gameManager.UpdateMatchPointsHUD(isRoundWon ? winningTeamId : -1, ScoreManager.Instance.GetRoundScoreDictionary());
+    //             yield return (object)new WaitForSeconds(1f - elapsedTime);
+    //             if (isRoundWon)
+    //             {
+    //                 gameManager.RoundWon(winningTeamId);
+    //                 List<int> playerIdsForTeam = ScoreManager.Instance.GetPlayerIdsForTeam(winningTeamId);
+    //                 StringBuilder stringBuilder = new StringBuilder();
+    //                 for (int index = 0; index < playerIdsForTeam.Count; ++index)
+    //                 {
+    //                     int key = playerIdsForTeam[index];
+    //                     if (ClientInstance.playerInstances.ContainsKey(key))
+    //                     {
+    //                         stringBuilder.Append($"<color=#{PauseManager.Instance.selfNameLogColor}>{ClientInstance.playerInstances[key].PlayerNameTag}</color>");
+    //                         if (index < playerIdsForTeam.Count - 2)
+    //                             stringBuilder.Append(", ");
+    //                         else if (index == playerIdsForTeam.Count - 2)
+    //                             stringBuilder.Append(" and ");
+    //                     }
+    //                 }
+    //                 stringBuilder.Append(" won the round");
+    //                 PauseManager.Instance.WriteLog(stringBuilder.ToString());
+    //                 RoundManager.Instance.CmdEndRound(winningTeamId);
+    //                 yield return (object)new WaitForSeconds(4f);
+    //                 SceneMotor.Instance.ChangeNetworkScene();
+    //             }
+    //             else
+    //             {
+    //                 yield return (object)new WaitForSeconds(2f);
+    //                 gameManager.ProgressToNextTake();
+    //             }
+    //             gameManager.alivePlayers.Clear();
+    //             foreach (ClientInstance clientInstance in ClientInstance.playerInstances.Values)
+    //                 gameManager.alivePlayers.Add(clientInstance.PlayerId);
+    //             gameManager.waitForDrawCoroutine = (Coroutine)null;
+    //         }
+    //     }
+    // }
 }
