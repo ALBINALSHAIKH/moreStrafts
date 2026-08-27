@@ -21,15 +21,15 @@ namespace moreStrafts
             typeof(UpdateOnClientsPatch),
             typeof(QuickLoadLobbyDataPatch),
             typeof(QuickLoadTogglePatch),
-            typeof(QuickLoadInterfacePatch),
+            typeof(RoundEndInterfacePatch),
             typeof(PlayerListItemUpdatePatch),
             typeof(TeamDropdownPatch),
             typeof(RunIntoLobbyPatch),
             typeof(MenuAnimationObserversPatch),
             typeof(DressAboubiObserversPatch),
             typeof(RoundEndArraysPatch),
-            typeof(GamemodeFfaPatch),
-            typeof(StartGameFfaPatch),
+            typeof(GamemodeTeamsPatch),
+            typeof(StartGameTeamsPatch),
             typeof(MatchPointsHudPatch),
         };
 

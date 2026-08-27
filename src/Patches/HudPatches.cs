@@ -7,6 +7,12 @@ using UnityEngine;
 
 namespace moreStrafts.Patches
 {
+    /// <summary>
+    /// Vanilla UpdateVisuals walks every team in TeamIdToPlayerIds and indexes activeMaterials,
+    /// secondaryPointObjects and pointsTexts with the loop counter, so anything past the four teams
+    /// the HUD was built for throws. This replaces it with a version that clamps to the slots that
+    /// actually exist.
+    /// </summary>
     [HarmonyPatch(typeof(MatchPoitnsHUD), "UpdateVisuals", typeof(int), typeof(Dictionary<int, int>))]
     static class MatchPointsHudPatch
     {
@@ -28,24 +34,24 @@ namespace moreStrafts.Patches
             try
             {
                 if (ClientInstance.playerInstances.Count <= 1) return false;
+                var scoreManager = ScoreManager.Instance;
+                if (scoreManager == null) return false;
 
                 var secondaryObjects = SecondaryObjects(__instance);
                 var pointsTexts = PointsTexts(__instance);
                 var primaryMesh = PrimaryMesh(__instance);
 
-                var teamIds = ScoreManager.Instance.TeamIdToPlayerIds.Keys.ToArray();
-                int activeTeams = teamIds.Count(teamId =>
-                    ScoreManager.Instance.TeamIdToPlayerIds[teamId].Any(playerId => ClientInstance.playerInstances.ContainsKey(playerId)));
+                var teamIds = ActiveTeamIds(scoreManager);
 
-                int secondaryActive = Mathf.Clamp(activeTeams - 2, 0, secondaryObjects.Length);
+                int secondaryActive = Mathf.Clamp(teamIds.Length - 2, 0, secondaryObjects.Length);
                 for (int i = 0; i < secondaryObjects.Length; i++)
                     secondaryObjects[i].gameObject.SetActive(i < secondaryActive);
 
                 foreach (var text in pointsTexts) text.text = "";
 
                 var primaryMaterials = primaryMesh.materials;
-                int displayedTeams = Mathf.Min(activeTeams, 2 + secondaryObjects.Length);
-                for (int teamNumber = 0; teamNumber < displayedTeams && teamNumber < teamIds.Length; teamNumber++)
+                int displayedTeams = Mathf.Min(teamIds.Length, 2 + secondaryObjects.Length);
+                for (int teamNumber = 0; teamNumber < displayedTeams; teamNumber++)
                 {
                     int teamId = teamIds[teamNumber];
                     roundScores.TryGetValue(teamId, out int score);
@@ -65,6 +71,20 @@ namespace moreStrafts.Patches
                 return true;
             }
         }
+
+        /// <summary>
+        /// Teams whose members are still connected, lowest id first. Filtering matters because
+        /// ScoreManager keeps a team around after its last player disconnects, so an unfiltered list
+        /// hands HUD slots to empty teams and pushes live ones off the end. Sorting matters because
+        /// SyncDictionary key order depends on how updates arrived, so without it the same team can
+        /// land in a different slot - and so under a different colour - on each client.
+        /// </summary>
+        static int[] ActiveTeamIds(ScoreManager scoreManager) =>
+            scoreManager.TeamIdToPlayerIds.Keys
+                .Where(teamId => scoreManager.TeamIdToPlayerIds[teamId]
+                    .Any(playerId => ClientInstance.playerInstances.ContainsKey(playerId)))
+                .OrderBy(teamId => teamId)
+                .ToArray();
 
         static void ApplyTeamVisual(MatchPoitnsHUD hud, int teamNumber, int score, bool isWinner, Material[] primaryMaterials)
         {
