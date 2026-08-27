@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using FishNet;
 using HarmonyLib;
 using Steamworks;
@@ -82,23 +81,6 @@ namespace moreStrafts.Patches
             if (label != null) label.text = "  Enable Quick Load";
 
             Log.Info($"QuickLoad toggle created (host={isHost}, on={ModState.QuickLoad})");
-        }
-    }
-
-    [HarmonyPatch(typeof(RoundManager), "InterfaceSetup")]
-    static class QuickLoadInterfacePatch
-    {
-        static bool Prefix(ref IEnumerator __result)
-        {
-            if (!ModState.QuickLoad) return true;
-            __result = LoadingScreenOnly();
-            return false;
-        }
-
-        static IEnumerator LoadingScreenOnly()
-        {
-            if (SceneMotor.Instance != null) SceneMotor.Instance.ShowLoadingScreen();
-            yield break;
         }
     }
 }
