@@ -14,10 +14,24 @@ namespace moreStrafts.Patches
         static int[] ConnectedPlayerIds() =>
             ClientInstance.playerInstances.Keys.OrderBy(playerId => playerId).ToArray();
 
+        static bool HasTeam(int playerId) =>
+            ScoreManager.Instance.PlayerIdToTeamId.TryGetValue(playerId, out _);
+
         /// <summary>
-        /// Free-for-all: every player is their own team. Vanilla gets here through
-        /// ScoreManager.GetTeamId's lazy fallback, but only for players it happens to look up.
+        /// Lowest team id with nobody connected on it. Reusing a live team's id would silently pair
+        /// a player up with someone who picked that team by hand.
         /// </summary>
+        static int FirstFreeTeamId()
+        {
+            for (int teamId = 0; ; teamId++)
+            {
+                bool taken = ScoreManager.Instance.GetPlayerIdsForTeam(teamId)
+                    .Any(playerId => ClientInstance.playerInstances.ContainsKey(playerId));
+                if (!taken) return teamId;
+            }
+        }
+
+        /// <summary>Free-for-all: wipe the teams and put every player on their own.</summary>
         public static void AssignUniqueTeams(string context)
         {
             try
@@ -37,80 +51,67 @@ namespace moreStrafts.Patches
         }
 
         /// <summary>
-        /// Teams mode. ScoreManager.Default2v2 hardcodes players 0-3 into teams 0 and 1 and leaves
-        /// everyone else out of PlayerIdToTeamId entirely; GetTeamId then lazily drops each of them
-        /// into a solo team of their own, so a 10-player "Teams" match silently becomes 2v2 plus six
-        /// one-player teams. Split every connected player across the two teams instead. The first
-        /// half goes to team 0 and the rest to team 1, which reproduces Default2v2 exactly at four
-        /// players.
+        /// Give a team to every connected player who has none, and to nobody else. Players who
+        /// picked a team from the dropdown keep it.
         /// </summary>
-        public static void AssignBalancedTeams(string context)
+        public static void AssignMissingTeams(string context)
         {
             try
             {
                 if (!IsServer || ScoreManager.Instance == null) return;
 
-                var playerIds = ConnectedPlayerIds();
-                if (playerIds.Length == 0) return;
+                var teamless = ConnectedPlayerIds().Where(playerId => !HasTeam(playerId)).ToArray();
+                if (teamless.Length == 0) return;
 
-                ScoreManager.Instance.ResetTeams();
-                int half = (playerIds.Length + 1) / 2;
-                for (int i = 0; i < playerIds.Length; i++)
-                    ScoreManager.Instance.SetTeamId(playerIds[i], i < half ? 0 : 1);
-                Log.Info($"{context}: balanced teams {half}v{playerIds.Length - half} [{string.Join(",", playerIds)}]");
+                foreach (int playerId in teamless)
+                    ScoreManager.Instance.SetTeamId(playerId, FirstFreeTeamId());
+                Log.Info($"{context}: gave a team to [{string.Join(",", teamless)}]");
             }
             catch (Exception e)
             {
-                Log.Error($"Teams.AssignBalancedTeams({context}): {e}");
+                Log.Error($"Teams.AssignMissingTeams({context}): {e}");
             }
         }
+    }
 
-        /// <summary>
-        /// Players who joined after the gamemode was chosen have no team at all. Drop each one on
-        /// the smaller side without touching anybody who already picked a team by hand.
-        /// </summary>
-        public static void FillMissingTeams(string context)
+    /// <summary>
+    /// ScoreManager.Default2v2 hardcodes players 0-3 into teams 0 and 1 and says nothing about
+    /// anyone else, so above four players it produces a shape nobody picked: the first four paired
+    /// up, the rest on their own. It also runs again on every join, re-pairing those first four and
+    /// discarding whatever they had chosen from the team dropdown.
+    ///
+    /// Above four players the game has no opinion about how teams should look - any split works,
+    /// including everyone solo - so the mod does not invent one either. Everybody starts on their
+    /// own team and groups up through the dropdown, and picks already made are left alone. At four
+    /// players or fewer the vanilla 2v2 default is exactly right, so it runs untouched.
+    /// </summary>
+    [HarmonyPatch(typeof(ScoreManager), "Default2v2")]
+    static class DefaultTeamsPatch
+    {
+        static bool Prefix()
         {
             try
             {
-                if (!IsServer || ScoreManager.Instance == null) return;
-
-                var unassigned = ConnectedPlayerIds()
-                    .Where(playerId => !ScoreManager.Instance.PlayerIdToTeamId.TryGetValue(playerId, out _))
-                    .ToArray();
-                if (unassigned.Length == 0) return;
-
-                foreach (int playerId in unassigned)
-                {
-                    int teamId = ConnectedCount(0) <= ConnectedCount(1) ? 0 : 1;
-                    ScoreManager.Instance.SetTeamId(playerId, teamId);
-                }
-                Log.Info($"{context}: assigned teamless players [{string.Join(",", unassigned)}]");
+                if (SteamLobby.Instance == null || SteamLobby.Instance.maxPlayers <= 4) return true;
+                Teams.AssignMissingTeams("Default2v2");
+                return false;
             }
             catch (Exception e)
             {
-                Log.Error($"Teams.FillMissingTeams({context}): {e}");
+                Log.Error($"DefaultTeamsPatch: {e}");
+                return true;
             }
         }
-
-        /// <summary>
-        /// Team membership survives disconnects, so counting the raw list would keep balancing
-        /// against players who already left.
-        /// </summary>
-        static int ConnectedCount(int teamId) =>
-            ScoreManager.Instance.GetPlayerIdsForTeam(teamId)
-                .Count(playerId => ClientInstance.playerInstances.ContainsKey(playerId));
     }
 
     [HarmonyPatch(typeof(SteamLobby), "SetGamemode", typeof(int))]
-    static class GamemodeTeamsPatch
+    static class GamemodeFfaPatch
     {
-        // value 0 is free-for-all, anything else is teams. Vanilla has just cleared the teams and
-        // (for teams mode) applied Default2v2, so rebuilding the assignment here clobbers nothing.
+        // value 0 is free-for-all, anything else is teams. Vanilla has just reset the teams and, for
+        // teams mode, applied Default2v2 - which DefaultTeamsPatch already handles.
         static void Postfix(int value)
         {
             if (value == 0) Teams.AssignUniqueTeams("SetGamemode");
-            else Teams.AssignBalancedTeams("SetGamemode");
         }
     }
 
@@ -121,7 +122,7 @@ namespace moreStrafts.Patches
         {
             try
             {
-                if (GameFields.PlayingTeams(__instance)) Teams.FillMissingTeams("StartGame");
+                if (GameFields.PlayingTeams(__instance)) Teams.AssignMissingTeams("StartGame");
                 else Teams.AssignUniqueTeams("StartGame");
             }
             catch (Exception e)

@@ -28,7 +28,8 @@ namespace moreStrafts
             typeof(MenuAnimationObserversPatch),
             typeof(DressAboubiObserversPatch),
             typeof(RoundEndArraysPatch),
-            typeof(GamemodeTeamsPatch),
+            typeof(DefaultTeamsPatch),
+            typeof(GamemodeFfaPatch),
             typeof(StartGameTeamsPatch),
             typeof(MatchPointsHudPatch),
         };
