@@ -31,6 +31,9 @@ namespace moreStrafts
             typeof(GamemodeFfaPatch),
             typeof(StartGameFfaPatch),
             typeof(MatchPointsHudPatch),
+            typeof(RoundScreenSlotsPatch),
+            typeof(RoundScreenGuardPatch),
+            typeof(RoundSpawnPatch),
         };
 
         void Awake()
